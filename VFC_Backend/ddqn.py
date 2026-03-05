@@ -214,10 +214,15 @@ class DuelingDDQN:
         if not os.path.exists(path):
             print(f"[DDQN] No checkpoint found at {path}, starting fresh.")
             return
-        ckpt = torch.load(path, map_location=DEVICE)
-        self.online.load_state_dict(ckpt["online"])
-        self.target.load_state_dict(ckpt["target"])
-        self.optimizer.load_state_dict(ckpt["optimizer"])
-        self.eps        = ckpt.get("eps",        self.eps)
-        self.step_count = ckpt.get("step_count", 0)
-        print(f"[DDQN] Loaded checkpoint from {path} (step={self.step_count}, ε={self.eps:.3f})")
+        try:
+            ckpt = torch.load(path, map_location=DEVICE)
+            self.online.load_state_dict(ckpt["online"])
+            self.target.load_state_dict(ckpt["target"])
+            self.optimizer.load_state_dict(ckpt["optimizer"])
+            self.eps        = ckpt.get("eps",        self.eps)
+            self.step_count = ckpt.get("step_count", 0)
+            print(f"[DDQN] Loaded checkpoint from {path} (step={self.step_count}, ε={self.eps:.3f})")
+        except (RuntimeError, KeyError) as e:
+            print(f"[DDQN] Checkpoint at {path} is incompatible with current network architecture.")
+            print(f"[DDQN] Reason: {e}")
+            print(f"[DDQN] Starting fresh with random weights.")

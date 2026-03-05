@@ -15,6 +15,7 @@ Flow per tick:
 
 import json
 import asyncio
+import os
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,7 @@ from ddqn import DuelingDDQN
 from environment import (
     VehicleInput, RSUConfig, VehicleResult,
     build_state_vector, compute_reward, process_vehicles,
+    calc_aoi_final, find_best_rsu,
     MAX_N, NUM_RSUS,
 )
 
@@ -35,6 +37,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Checkpoint path resolution ─────────────────────────────────────
+MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_models")
+CKPT_PATH = os.path.join(MODEL_DIR, "dueling_ddqn_checkpoint.pth")
 
 # ── Global agent (one per server instance) ────────────────────────
 STATE_DIM  = MAX_N + NUM_RSUS + MAX_N + MAX_N
@@ -56,7 +62,7 @@ agent = DuelingDDQN(
 )
 
 # Try to load a pre-trained checkpoint on startup
-agent.load("checkpoint.pth")
+agent.load(CKPT_PATH)
 
 # Track previous state for replay buffer
 prev_state:  np.ndarray | None = None
@@ -114,11 +120,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             # 2. Compute AoI for each vehicle + build state vector
-            from environment import calc_aoi, find_best_rsu
             aoi_map = {}
             for v in vehicles:
                 best_rsu, _ = find_best_rsu(v.x, v.y, rsus)
-                aoi_map[v.id] = calc_aoi(v.lambda_rate, best_rsu.mu_r) if best_rsu else 0.28
+                aoi_map[v.id] = calc_aoi_final(v.lambda_rate, best_rsu.mu_r) if best_rsu else 0.28
 
             state = build_state_vector(vehicles, rsus, aoi_map)
 
@@ -172,7 +177,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # 8. Periodic checkpoint save
             if step_num % 500 == 0:
-                agent.save("checkpoint.pth")
+                agent.save(CKPT_PATH)
                 print(f"[DDQN] Step {step_num} · ε={agent.eps:.3f} · loss={loss:.4f}")
 
             # 9. Build response
@@ -216,7 +221,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("[WS] Client disconnected — saving checkpoint")
-        agent.save("checkpoint.pth")
+        agent.save(CKPT_PATH)
 
     except Exception as e:
         print(f"[WS] Error: {e}")
@@ -239,7 +244,7 @@ def root():
 
 @app.post("/save")
 def save_checkpoint():
-    agent.save("checkpoint.pth")
+    agent.save(CKPT_PATH)
     return {"saved": True, "step": step_num}
 
 @app.post("/reset")

@@ -20,7 +20,7 @@ export function buildState(vehicles, N = 15) {
   return [
     ...padded.slice(0, N).map(v => v.lambda / 10),
     ...RSUS.map(r => r.mu / 12),
-    ...padded.slice(0, N).map(v => v.lambda / 10),
+    ...padded.slice(0, N).map(v => (v.mu_v || 6.0) / 10),
     ...padded.slice(0, N).map(v => v.aoi / 0.28),
   ];
 }
