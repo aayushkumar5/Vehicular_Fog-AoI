@@ -9,46 +9,46 @@ import { RSUS, PHASE, D_MAX, CANDIDATE_R, AOI_THRESHOLD } from "./lib/constants"
 import "./index.css";
 
 export default function App() {
-  const [vehicles,  setVehicles]  = useState(() => initVehicles(10));
-  const [numVeh,    setNumVeh]    = useState(10);
-  const [aoiThr,    setAoiThr]    = useState(AOI_THRESHOLD);
-  const [running,   setRunning]   = useState(false);
-  const [selected,  setSelected]  = useState(null);
-  const [showCov,   setShowCov]   = useState(true);
-  const [wsStatus,  setWsStatus]  = useState("disconnected");
+  const [vehicles, setVehicles] = useState(() => initVehicles(10));
+  const [numVeh, setNumVeh] = useState(10);
+  const [aoiThr, setAoiThr] = useState(AOI_THRESHOLD);
+  const [running, setRunning] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [showCov, setShowCov] = useState(true);
+  const [wsStatus, setWsStatus] = useState("disconnected");
 
   // Backend result state
-  const [episode,   setEpisode]   = useState(1);
-  const [step,      setStep]      = useState(0);
-  const [epsilon,   setEpsilon]   = useState(1.0);
-  const [bufSize,   setBufSize]   = useState(0);
-  const [avgAoI,    setAvgAoI]    = useState(0);
-  const [avgRew,    setAvgRew]    = useState(0);
-  const [avgLoss,   setAvgLoss]   = useState(0);
-  const [rewardH,   setRewardH]   = useState([]);
-  const [aoiH,      setAoiH]      = useState([]);
-  const [lossH,     setLossH]     = useState([]);
-  const [rsuLogs,   setRsuLogs]   = useState(Object.fromEntries(RSUS.map(r => [r.id, []])));
+  const [episode, setEpisode] = useState(1);
+  const [step, setStep] = useState(0);
+  const [epsilon, setEpsilon] = useState(1.0);
+  const [bufSize, setBufSize] = useState(0);
+  const [avgAoI, setAvgAoI] = useState(0);
+  const [avgRew, setAvgRew] = useState(0);
+  const [avgLoss, setAvgLoss] = useState(0);
+  const [rewardH, setRewardH] = useState([]);
+  const [aoiH, setAoiH] = useState([]);
+  const [lossH, setLossH] = useState([]);
+  const [rsuLogs, setRsuLogs] = useState(Object.fromEntries(RSUS.map(r => [r.id, []])));
 
-  const rafRef     = useRef();
-  const lastRef    = useRef(0);
-  const stepRef    = useRef(0);
+  const rafRef = useRef();
+  const lastRef = useRef(0);
+  const stepRef = useRef(0);
   const episodeRef = useRef(1);
-  const wsRef      = useRef(null);
-  const logRef     = useRef(Object.fromEntries(RSUS.map(r => [r.id, []])));
-  const aoiThrRef  = useRef(aoiThr);
+  const wsRef = useRef(null);
+  const logRef = useRef(Object.fromEntries(RSUS.map(r => [r.id, []])));
+  const aoiThrRef = useRef(aoiThr);
   useEffect(() => { aoiThrRef.current = aoiThr; }, [aoiThr]);
 
   // Handle results from backend
   const handleBackendMessage = useCallback((data) => {
     if (data.error) { console.error("[Backend]", data.error); return; }
 
-    setEpisode(data.episode    ?? 1);
-    setStep(data.step          ?? 0);
-    setEpsilon(data.epsilon    ?? 1);
+    setEpisode(data.episode ?? 1);
+    setStep(data.step ?? 0);
+    setEpsilon(data.epsilon ?? 1);
     setBufSize(data.buffer_size ?? 0);
-    setAvgAoI(data.avg_aoi     ?? 0);
-    setAvgRew(data.avg_reward  ?? 0);
+    setAvgAoI(data.avg_aoi ?? 0);
+    setAvgRew(data.avg_reward ?? 0);
     if (data.loss > 0) setAvgLoss(data.loss);
     setRewardH(h => [...h.slice(-90), data.avg_reward ?? 0]);
     setAoiH(h => [...h.slice(-90), data.avg_aoi ?? 0]);
@@ -83,18 +83,18 @@ export default function App() {
 
       return {
         ...v,
-        aoi:         r.aoi,
-        beta:        r.beta,
+        aoi: r.aoi,
+        beta: r.beta,
         assignedRSU: r.assigned_rsu,
-        phase: r.phase === "OUT"       ? PHASE.OUT
-             : r.phase === "FOG"       ? PHASE.FOG
-             : r.phase === "CANDIDATE" ? PHASE.CANDIDATE
-             : v.phase,
-        qValue:  r.q_value,
-        vValue:  r.v_value,
-        action:  r.action,
-        status:  r.status,
-        reason:  r.reason,
+        phase: r.phase === "OUT" ? PHASE.OUT
+          : r.phase === "FOG" ? PHASE.FOG
+            : r.phase === "CANDIDATE" ? PHASE.CANDIDATE
+              : v.phase,
+        qValue: r.q_value,
+        vValue: r.v_value,
+        action: r.action,
+        status: r.status,
+        reason: r.reason,
       };
     }));
 
@@ -163,7 +163,7 @@ export default function App() {
       // Send to backend
       if (wsRef.current?.isConnected) {
         stepRef.current += 1;
-        if (stepRef.current % 60 === 0) episodeRef.current += 1;
+        if (stepRef.current % 200 === 0) episodeRef.current += 1;
         wsRef.current.send({
           vehicles: next.map(v => ({
             id: v.id, x: v.x, y: v.y,
@@ -173,7 +173,7 @@ export default function App() {
           rsu_positions: RSUS.map(r => ({ id: r.id, x: r.x, y: r.y, mu_r: r.mu })),
           aoi_threshold: aoiThrRef.current,
           episode: episodeRef.current,
-          step:    stepRef.current,
+          step: stepRef.current,
         });
       }
       return next;
@@ -197,7 +197,7 @@ export default function App() {
     logRef.current = Object.fromEntries(RSUS.map(r => [r.id, []]));
     setRsuLogs(Object.fromEntries(RSUS.map(r => [r.id, []])));
     setSelected(null);
-    fetch("http://localhost:8000/reset", { method: "POST" }).catch(() => {});
+    fetch("http://localhost:8000/reset", { method: "POST" }).catch(() => { });
   };
 
   const applyVehicleCount = (n) => {
@@ -205,12 +205,12 @@ export default function App() {
     setRunning(false); stepRef.current = 0;
   };
 
-  const selV   = selected ? vehicles.find(v => v.id === selected) : null;
+  const selV = selected ? vehicles.find(v => v.id === selected) : null;
   const selRSU = selV?.assignedRSU ? RSUS.find(r => r.id === selV.assignedRSU) : null;
   const phaseCounts = Object.fromEntries(
     Object.values(PHASE).map(p => [p, vehicles.filter(v => v.phase === p).length])
   );
-  const fogTotal  = vehicles.filter(v => v.phase === PHASE.FOG).length;
+  const fogTotal = vehicles.filter(v => v.phase === PHASE.FOG).length;
   const statusColor = { connected: "#00ff88", connecting: "#ffe066", disconnected: "#ff4466", error: "#ff4466" };
 
   return (
@@ -224,8 +224,10 @@ export default function App() {
           </div>
         </div>
         <div className="header-btns">
-          <div style={{ padding: "4px 9px", borderRadius: 5, fontSize: 8.5, fontFamily: "monospace",
-            border: `1px solid ${statusColor[wsStatus]}`, color: statusColor[wsStatus] }}>
+          <div style={{
+            padding: "4px 9px", borderRadius: 5, fontSize: 8.5, fontFamily: "monospace",
+            border: `1px solid ${statusColor[wsStatus]}`, color: statusColor[wsStatus]
+          }}>
             ⬤ Backend {wsStatus}
           </div>
           <button className="btn" style={{ borderColor: "#3a7a9a", color: "#3a7a9a" }}
@@ -257,11 +259,11 @@ export default function App() {
 
       <div className="steps-grid">
         {[
-          { n:"①", t:"Send Params",       c:"#ffe066", b:"Frontend → Backend via WebSocket: pos/speed/λ/μᵥ per vehicle" },
-          { n:"②", t:"AoI Eval Δᵢ",      c:"#00aaff", b:"Backend: Δ=1/(1-ε)λ + 1/(1-ε)μᵣ + λμᵣε/(λ+μᵣ) · Eq.(14)" },
-          { n:"③", t:"Accept / Reject",   c:"#ff4466", b:"AoI ≤ threshold → ACCEPT · AoI > threshold → REJECT · Eq.(19a)" },
-          { n:"④", t:"Dueling DDQN",      c:"#a78bfa", b:"PyTorch: Q=V+[A−mean(A)] · Double Q target · Eq.(21,22,23)" },
-          { n:"⑤", t:"Results → Display", c:"#00ff88", b:"Backend → Frontend: status/AoI/Q/phase per vehicle via WebSocket" },
+          { n: "①", t: "Send Params", c: "#ffe066", b: "Frontend → Backend via WebSocket: pos/speed/λ/μᵥ per vehicle" },
+          { n: "②", t: "AoI Eval Δᵢ", c: "#00aaff", b: "Backend: Δ=1/(1-ε)λ + 1/(1-ε)μᵣ + λμᵣε/(λ+μᵣ) · Eq.(14)" },
+          { n: "③", t: "Accept / Reject", c: "#ff4466", b: "AoI ≤ threshold → ACCEPT · AoI > threshold → REJECT · Eq.(19a)" },
+          { n: "④", t: "Dueling DDQN", c: "#a78bfa", b: "PyTorch: Q=V+[A−mean(A)] · Double Q target · Eq.(21,22,23)" },
+          { n: "⑤", t: "Results → Display", c: "#00ff88", b: "Backend → Frontend: status/AoI/Q/phase per vehicle via WebSocket" },
         ].map(c => (
           <div key={c.t} className="step-card" style={{ borderColor: c.c + "30" }}>
             <div className="step-header">

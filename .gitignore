@@ -1,5 +1,12 @@
-venv/
+venv
 __pycache__
 .env
 .ipynb_checkpoints
 Questions.txt
+question.txt
+node_modules
+.idea
+error.md
+error.txt
+got_it.md
+VFC_Full_Project_Fixed.zip

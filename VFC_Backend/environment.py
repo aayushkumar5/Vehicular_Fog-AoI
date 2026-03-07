@@ -2,9 +2,9 @@
 VFC Simulation Environment
 Handles:
   • AoI per packet      — Equation (14)   [FIXED t3 term]
-  • Average AoI over H  — Equation (16)   [ADDED]
+  • Average AoI over H  — Equation (16)   [ADDED] 
   • Error-rate adjust   — Equation (17)   [ADDED]
-  • Distance / β_ij     — Equation (1)
+  • Distance / β_ij     — Equation (1)    [Vehicle Eligibility Formula is either 1 or 0 based on the formula d_ij < D_max]
   • Accept / Reject     — Equations (19a, 19b)
   • State vector        — paper §IV-A
   • Reward              — Equation (20)
@@ -14,11 +14,11 @@ Handles:
 import math
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Tuple, Dict
 
 # ── Constants ─────────────────────────────────────────────────────
 D_MAX         = 115.0   # max RSU coverage distance (pixels/units)
-ERROR_RATE    = 0.10    # ε — packet error rate
+ERROR_RATE    = 0.05    # ε — packet error rate (reduced from 0.10 for lower AoI)
 MAX_N         = 15      # max vehicles for fixed state vector size
 NUM_RSUS      = 3
 H_PACKETS     = 5       # number of status update packets to average over — Eq.(16)
@@ -27,12 +27,12 @@ H_PACKETS     = 5       # number of status update packets to average over — Eq
 @dataclass
 class VehicleInput:
     """Raw vehicle data received from frontend."""
-    id:          str
-    x:           float
-    y:           float
-    speed:       float
-    direction:   int        # +1 or -1
-    lane:        str        # "A" or "B"
+    id:          str        # id of the vehicle
+    x:           float      # x-coordinate of the vehicle
+    y:           float      # y-coordinate of the vehicle
+    speed:       float      # speed of the vehicle
+    direction:   int        # direction of the vehicle (+1 or -1)
+    lane:        str        # lane of the vehicle ("A" or "B")
     lambda_rate: float      # packet arrival rate λ
     mu_v:        float      # vehicle computing capacity
 
@@ -40,9 +40,9 @@ class VehicleInput:
 @dataclass
 class RSUConfig:
     """RSU configuration from frontend."""
-    id:   str
-    x:    float
-    y:    float
+    id:   str               # id of the RSU
+    x:    float             # x-coordinate of the RSU
+    y:    float             # y-coordinate of the RSU
     mu_r: float             # RSU computing capacity
 
 
@@ -53,18 +53,18 @@ class VehicleResult:
     aoi:          float     # final Δᵢ after Eq.(16,17)
     aoi_per_packet: float   # raw Δᵢ,ₕ from Eq.(14) for display
     beta:         int       # 0 or 1 — Eq.(1)
-    assigned_rsu: Optional[str]
-    distance:     float
+    assigned_rsu: Optional[str] # id of the assigned RSU
+    distance:     float     # distance between vehicle and assigned RSU
     status:       str       # "ACCEPTED" | "REJECTED" | "OUT_OF_RANGE"
-    reason:       str
+    reason:       str       # reason for acceptance or rejection
     action:       int       # 0=skip, 1..M=offload to RSU index
-    q_value:      float
-    v_value:      float
-    phase:        str
+    q_value:      float     # Q-value of the action (DRL)
+    v_value:      float     # V-value of the action (DRL)
+    phase:        str       # "PRE_DECISION" | "DECISION" | "POST_DECISION"
 
 
 def euclidean(x1, y1, x2, y2) -> float:
-    return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+    return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2) # Euclidean distance between two points
 
 
 # ── FIX 1: Corrected Equation (14) ────────────────────────────────
@@ -80,11 +80,11 @@ def calc_aoi_per_packet(lambda_rate: float, mu_r: float, eps: float = ERROR_RATE
     Previous bug had t3 = λ·μᵣ·ε/(λ+μᵣ) which is mathematically wrong.
     """
     if lambda_rate <= 0 or mu_r <= 0:
-        return 0.28
+        return 0.1
     t1 = 1.0 / ((1 - eps) * lambda_rate)
     t2 = 1.0 / ((1 - eps) * mu_r)
     t3 = lambda_rate / (mu_r * (lambda_rate + mu_r))   # ← FIXED
-    return min(t1 + t2 + t3, 0.28)
+    return (t1 + t2 + t3)
 
 
 # ── FIX 2a: Equation (16) — average AoI over H packets ────────────
@@ -121,7 +121,7 @@ def calc_aoi_final(lambda_rate: float, mu_r: float, H: int = H_PACKETS, eps: flo
         return delta_H
 
 
-def find_best_rsu(vx: float, vy: float, rsus: list[RSUConfig]) -> tuple[Optional[RSUConfig], float]:
+def find_best_rsu(vx: float, vy: float, rsus: List[RSUConfig]) -> Tuple[Optional[RSUConfig], float]:
     """Equation (1): Find closest RSU within D_MAX."""
     best_rsu, min_d = None, float("inf")
     for rsu in rsus:
@@ -132,7 +132,7 @@ def find_best_rsu(vx: float, vy: float, rsus: list[RSUConfig]) -> tuple[Optional
     return best_rsu, min_d if best_rsu else float("inf")
 
 
-def find_all_rsus_in_range(vx: float, vy: float, rsus: list[RSUConfig]) -> list[tuple[RSUConfig, float]]:
+def find_all_rsus_in_range(vx: float, vy: float, rsus: List[RSUConfig]) -> List[Tuple[RSUConfig, float]]:
     """Return ALL RSUs within D_MAX, sorted by distance. Used for action space."""
     in_range = []
     for rsu in rsus:
@@ -143,19 +143,19 @@ def find_all_rsus_in_range(vx: float, vy: float, rsus: list[RSUConfig]) -> list[
 
 
 def build_state_vector(
-    vehicles: list[VehicleInput],
-    rsus:     list[RSUConfig],
-    aoi_map:  dict[str, float],
+    vehicles: List[VehicleInput],
+    rsus:     List[RSUConfig],
+    aoi_map:  Dict[str, float],
     n:        int = MAX_N,
 ) -> np.ndarray:
     """
     State vector — sₜ = [λ(N), μ_r(M), μ_v(N), Δ(N)]
     Uses final corrected AoI (Eq.17) in the Δ component.
     """
-    lambdas = [v.lambda_rate / 10.0           for v in vehicles[:n]]
+    lambdas = [v.lambda_rate / 50.0           for v in vehicles[:n]]
     mu_vs   = [v.mu_v / 10.0                  for v in vehicles[:n]]
     deltas  = [aoi_map.get(v.id, 0.28) / 0.28 for v in vehicles[:n]]
-    mu_rs   = [r.mu_r / 12.0                  for r in rsus]
+    mu_rs   = [r.mu_r / 50.0                  for r in rsus]
 
     while len(lambdas) < n: lambdas.append(0.0)
     while len(mu_vs)   < n: mu_vs.append(0.0)
@@ -164,8 +164,8 @@ def build_state_vector(
     return np.array(lambdas + mu_rs + mu_vs + deltas, dtype=np.float32)
 
 
-def compute_reward(vehicle_results: list[VehicleResult]) -> float:
-    """Reward — Equation (20): rₜ = 1/Δₜ"""
+def compute_reward(vehicle_results: List[VehicleResult]) -> float:
+    """Reward — Equation (20): rₜ = 1/Δₜ²  (squared for stronger AoI minimization)"""
     if not vehicle_results:
         return 0.0
     avg_aoi = sum(r.aoi for r in vehicle_results) / len(vehicle_results)
@@ -187,13 +187,13 @@ def decode_action(action_idx: int, num_rsus: int) -> int:
 
 
 def process_vehicles(
-    vehicles:      list[VehicleInput],
-    rsus:          list[RSUConfig],
+    vehicles:      List[VehicleInput],
+    rsus:          List[RSUConfig],
     aoi_threshold: float,
-    actions:       list[int],   # now: 0=skip, 1..M=target RSU index
-    q_values:      list[float],
+    actions:       List[int],   # now: 0=skip, 1..M=target RSU index
+    q_values:      List[float],
     v_value:       float,
-) -> list[VehicleResult]:
+) -> List[VehicleResult]:
     """
     Core fog formation logic — paper-accurate:
     1. Distance check β_ij          — Eq.(1)
@@ -216,8 +216,9 @@ def process_vehicles(
         # ── Out of range ──────────────────────────────────────────
         if not rsus_in_range:
             _, inf_d = find_best_rsu(v.x, v.y, rsus)
+            # Higher AoI penalty for out-of-range vehicles drives agent to offload
             results.append(VehicleResult(
-                id=v.id, aoi=0.28, aoi_per_packet=0.28,
+                id=v.id, aoi=0.50, aoi_per_packet=0.50,
                 beta=0, assigned_rsu=None, distance=inf_d,
                 status="OUT_OF_RANGE",
                 reason=f"d > d_max={D_MAX} — β=0",
@@ -260,6 +261,7 @@ def process_vehicles(
 
         elif offload:
             status = "ACCEPTED"
+            #reason = f"Selected by RL → {target_rsu.id} · Q={q_value:.3f}"
             reason = f"Δᵢ={aoi_final:.4f}s ≤ {aoi_threshold}s → {target_rsu.id} · Q={q_value:.3f}"
             final_action = raw_action
             phase  = "FOG"

@@ -16,6 +16,8 @@ Flow per tick:
 import json
 import asyncio
 import os
+import time
+from typing import Optional, Tuple, List
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +42,7 @@ app.add_middleware(
 
 # ── Checkpoint path resolution ─────────────────────────────────────
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_models")
+os.makedirs(MODEL_DIR, exist_ok=True)
 CKPT_PATH = os.path.join(MODEL_DIR, "dueling_ddqn_checkpoint.pth")
 
 # ── Global agent (one per server instance) ────────────────────────
@@ -65,13 +68,16 @@ agent = DuelingDDQN(
 agent.load(CKPT_PATH)
 
 # Track previous state for replay buffer
-prev_state:  np.ndarray | None = None
+prev_state:  Optional[np.ndarray] = None
 episode_num: int = 1
 step_num:    int = 0
 
+# Rate limiting
+MIN_MSG_INTERVAL = 0.01  # 10ms minimum between messages
+
 
 # ── Helper: parse incoming message ────────────────────────────────
-def parse_message(data: dict) -> tuple[list[VehicleInput], list[RSUConfig], float]:
+def parse_message(data: dict) -> Tuple[List[VehicleInput], List[RSUConfig], float]:
     vehicles = [
         VehicleInput(
             id          = v["id"],
@@ -106,14 +112,40 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("[WS] Client connected")
 
+    last_msg_time = 0.0
+
     try:
         while True:
+            # Rate limiting
+            now = time.monotonic()
+            elapsed = now - last_msg_time
+            if elapsed < MIN_MSG_INTERVAL:
+                await asyncio.sleep(MIN_MSG_INTERVAL - elapsed)
+            last_msg_time = time.monotonic()
+
             # 1. Receive vehicle data from frontend
             raw = await websocket.receive_text()
             data = json.loads(raw)
 
             vehicles, rsus, aoi_threshold = parse_message(data)
-            episode_num = data.get("episode", episode_num)
+
+            # FIX: Reset prev_state on episode change to prevent cross-episode transitions
+            new_episode = data.get("episode", episode_num)
+            episode_changed = new_episode != episode_num
+
+            if episode_changed and prev_state is not None:
+                # Push terminal transition for previous episode (done=True)
+                agent.push(
+                    s      = prev_state,
+                    a      = 0,
+                    r      = 0.0,
+                    s_next = prev_state,
+                    done   = True,
+                )
+                prev_state = None
+                print(f"[DDQN] Episode {episode_num} → {new_episode}")
+
+            episode_num = new_episode
             step_num   += 1
 
             if not vehicles or not rsus:
@@ -160,12 +192,14 @@ async def websocket_endpoint(websocket: WebSocket):
             # 5. Compute reward — Eq.(20)
             reward = compute_reward(results)
 
-            # 6. Push to replay buffer (s, a, r, s', done)
+            # 6. FIX: Push CORRECT action to replay buffer (flat action index, not vehicle loop index)
             if prev_state is not None:
-                for i in range(len(vehicles)):
+                for i, vi in enumerate(range(len(vehicles))):
+                    flat_action = vi * num_choices + actions[i]
+                    flat_action = min(flat_action, ACTION_DIM - 1)
                     agent.push(
                         s      = prev_state,
-                        a      = min(i, ACTION_DIM - 1),
+                        a      = flat_action,
                         r      = reward,
                         s_next = state,
                         done   = False,
@@ -239,7 +273,7 @@ def root():
         "step":       step_num,
         "epsilon":    round(agent.eps, 4),
         "buffer":     len(agent.buffer),
-        "device":     str(agent.online.parameters().__next__().device),
+        "device":     str(next(agent.online.parameters()).device),
     }
 
 @app.post("/save")
@@ -249,8 +283,21 @@ def save_checkpoint():
 
 @app.post("/reset")
 def reset_agent():
-    global prev_state, step_num
+    global prev_state, step_num, agent
     prev_state = None
     step_num   = 0
-    agent.__init__(STATE_DIM, ACTION_DIM)
+    # FIX: Create a new agent instead of calling __init__ directly (avoids PyTorch memory leak)
+    agent = DuelingDDQN(
+        state_dim   = STATE_DIM,
+        action_dim  = ACTION_DIM,
+        hidden      = 128,
+        lr          = 3e-3,
+        gamma       = 0.99,
+        eps_start   = 1.0,
+        eps_min     = 0.05,
+        eps_decay   = 0.9965,
+        target_sync = 60,
+        batch_size  = 32,
+        buffer_size = 512,
+    )
     return {"reset": True}

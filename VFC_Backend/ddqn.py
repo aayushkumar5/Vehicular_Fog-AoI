@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import os
+from typing import Tuple, List
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -125,7 +126,7 @@ class DuelingDDQN:
             self.buffer_ptr = (self.buffer_ptr + 1) % self.buffer_size
 
     # ── ε-greedy action selection ──────────────────────────────────
-    def select_actions(self, state: np.ndarray) -> tuple[list[int], list[float], float]:
+    def select_actions(self, state: np.ndarray) -> Tuple[List[int], List[float], float]:
         """
         Returns actions, Q-values, V-value for all action slots.
         Uses online network for inference.
