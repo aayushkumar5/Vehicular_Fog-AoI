@@ -84,6 +84,7 @@ export default function App() {
       return {
         ...v,
         aoi: r.aoi,
+        aoi_per_packet: r.aoi_per_packet ?? r.aoi,
         beta: r.beta,
         assignedRSU: r.assigned_rsu,
         phase: r.phase === "OUT" ? PHASE.OUT

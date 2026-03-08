@@ -37,8 +37,8 @@ export function initVehicles(n = 10) {
       dir: isA ? 1 : -1,
       speed: rand(1.5, 2.8),
       lambda: rand(30, 40),
-      mu_v:   rand(4, 8),     // ← missing
-      //aoi:    rand(0.04, 0.18),
+      mu_v:   rand(4, 8),
+      aoi: 0,
       aoi_per_packet: 0,
       beta: 0,
       phase: PHASE.OUT,
