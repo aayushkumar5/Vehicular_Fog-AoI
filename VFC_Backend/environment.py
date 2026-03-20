@@ -247,13 +247,7 @@ def process_vehicles(
         aoi_ok      = aoi_final <= aoi_threshold
         capacity_ok = v.lambda_rate <= target_rsu.mu_r
 
-        if not aoi_ok:
-            status = "REJECTED"
-            reason = f"Δᵢ={aoi_final:.4f}s > Δth={aoi_threshold}s — Eq.(19a)"
-            final_action = 0
-            phase  = "CANDIDATE"
-
-        elif not capacity_ok:
+       if not capacity_ok:
             status = "REJECTED"
             reason = f"λ={v.lambda_rate:.2f} > μᵣ={target_rsu.mu_r} — Eq.(19b)"
             final_action = 0
